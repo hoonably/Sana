@@ -177,7 +177,23 @@ def visualize(config, args, model, items, bs, sample_steps, cfg_scale):
 
                 timestep = t.expand(latents.shape[0]).to(device)
 
-                # ⭐️⭐️⭐️ model prediction
+
+                
+                # model prediction
+                import torch, time, threading, matplotlib.pyplot as plt, gc
+                mem_log, time_log, stop_flag = [], [], False
+                def monitor_memory(interval=0.05):
+                    start = time.time()
+                    while not stop_flag:
+                        mem_log.append(torch.cuda.memory_allocated() / 1024**3)
+                        time_log.append(time.time() - start)
+                        time.sleep(interval)
+                monitor_thread = threading.Thread(target=monitor_memory, daemon=True)
+                monitor_thread.start()
+                torch.cuda.reset_peak_memory_stats()
+                inference_start = time.time()
+
+                # ⭐️⭐️⭐️ 기존 model prediction
                 # model_pred = sigma_data * model(
                 #     latents / sigma_data,
                 #     timestep,
@@ -185,13 +201,28 @@ def visualize(config, args, model, items, bs, sample_steps, cfg_scale):
                 #     **model_kwargs,
                 # )
 
-                # ⭐️⭐️⭐️ model prediction
+                # ⭐️⭐️⭐️ Blockwise Streaming Inference
                 model_pred = sigma_data * model.forward_stream(
                     latents / sigma_data,
                     timestep,
                     caption_embs,
                     **model_kwargs,
                 )
+                inference_end = time.time()
+                stop_flag = True
+                monitor_thread.join()
+                # 메모리 그래프 출력
+                plt.figure(figsize=(10, 4))
+                for i in range(1, len(time_log)):
+                    t0, t1 = time_log[i - 1], time_log[i]
+                    m0, m1 = mem_log[i - 1], mem_log[i]
+                    color = 'green' if inference_start <= t1 <= inference_end else 'blue'
+                    plt.plot([t0, t1], [m0, m1], color=color)
+                plt.xlabel('Time (s)')
+                plt.ylabel('GPU Memory Allocated (GB)')
+                plt.title('GPU Memory Usage during Inference')
+                plt.grid(True)
+                plt.show()
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latents, denoised = scheduler.step(model_pred, i, t, latents, return_dict=False)

@@ -93,6 +93,26 @@ class LiteMLA(nn.Module):
         out = self.proj(out)
 
         return out
+    
+    # ⭐️⭐️⭐️ 한 block씩 실행하여 유틸리티를 위한 함수 / 나중에 고급 기능에서 사용할수도
+    # block 별 activation 저장하고 resume
+    # attention map 시각화 (특정 block만)
+    # selective execution: 특정 block만 수정해서 재실행
+    def forward_block(self, x, t, c, block_idx):
+        block = self.blocks[block_idx]
+        block.to(x.device)
+        x = block(x, t, c)
+        block.cpu()
+        return x
+
+    @torch.no_grad()
+    def forward_stream(self, x, t, c):
+        for i, block in enumerate(self.blocks):
+            block.to(x.device)
+            x = block(x, t, c)
+            block.cpu()
+        return x
+
 
     @property
     def module_str(self) -> str:
